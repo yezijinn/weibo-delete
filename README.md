@@ -103,6 +103,16 @@ git clone https://github.com/yezijinn/weibo-delete.git
 
 日期格式必须写成 `2020-01-01` 这样。
 
+### 删的时候大概长这样
+
+![删除过程 1](docs/screenshot-01.png)
+
+![删除过程 2](docs/screenshot-02.png)
+
+![删除过程 3](docs/screenshot-03.png)
+
+![删除过程 4](docs/screenshot-04.png)
+
 ---
 
 ## 四、删除要多久
