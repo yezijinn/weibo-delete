@@ -10,6 +10,8 @@
 
 ### 方式 A：手动下载（推荐，最简单）
 
+![下载方式](docs/screenshot-download.png)
+
 1. 打开 https://github.com/yezijinn/weibo-delete
 2. 点绿色的 **Code** 按钮
 3. 在下拉菜单里点 **Download ZIP**
@@ -59,6 +61,8 @@ git clone https://github.com/yezijinn/weibo-delete.git
 ## 三、开始删除
 
 **双击 `run.bat`**，会出现这样的菜单：
+
+![运行菜单](docs/screenshot-menu.png)
 
 ```
 ==============================================
