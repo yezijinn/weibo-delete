@@ -1,0 +1,18 @@
+# 登录态和浏览器数据，别传上去
+.browser-profile/
+
+# 删除进度和日志
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
