@@ -194,17 +194,46 @@ def ensure_login(page, log, timeout_sec):
     raise RuntimeError("等登录超时了。重跑一次，扫码后马上就会继续。")
 
 
-def classify(msg):
-    """把接口的报错粗分成几类，好决定是重试、退出还是跳过。"""
-    if not msg:
-        return "other"
-    low = msg.lower()
-    for kw in ("登录", "未登录", "先登录", "login", "logout", "401"):
-        if kw in low:
-            return "auth"
-    for kw in ("频繁", "太快", "稍后", "限制", "过于", "休息", "403", "429"):
-        if kw in msg:
-            return "ratelimit"
+# 永久失败：这条微博无论重试多少次都删不掉，直接跳过
+GONE_KEYWORDS = (
+    "已不可见", "不存在", "已被删除", "没有权限", "查看权限",
+    "已被原作者删除", "微博已删除", "invalid", "not found", "404",
+)
+
+# 临时失败：网络抖动、服务端错误，值得重试
+TRANSIENT_KEYWORDS = (
+    "timeout", "超时", "network", "网络", "服务器", "系统繁忙",
+    "稍后再试", "请重试", "500", "502", "503", "504", "fetch error",
+)
+
+
+def classify(msg, status=0):
+    """把接口返回分成几类，决定重试、退出还是跳过。
+
+    返回 auth / ratelimit / gone / transient / other
+
+    注意：先看 msg 里的关键词，再回退到 http status。
+    顺序反了的话，默认 status=0 会把所有调用都判成 transient。
+    """
+    low = (msg or "").lower()
+
+    if msg:
+        for kw in ("登录", "未登录", "先登录", "login", "logout", "401"):
+            if kw in low:
+                return "auth"
+        for kw in ("频繁", "太快", "稍后", "限制", "过于", "休息", "403", "429"):
+            if kw in msg:
+                return "ratelimit"
+        for kw in GONE_KEYWORDS:
+            if kw in msg or kw in low:
+                return "gone"
+        for kw in TRANSIENT_KEYWORDS:
+            if kw in msg or kw in low:
+                return "transient"
+
+    # msg 里看不出线索时，才看 http status
+    if status in (500, 502, 503, 504, 0):
+        return "transient"
     return "other"
 
 
@@ -490,7 +519,8 @@ def parse_args(argv=None):
     p.add_argument("--jitter", type=float, default=None, help="在 delay 之上再加 0~jitter 秒随机，不填就用设置里的")
     p.add_argument("--batch-size", type=int, default=50, help="删多少条长休一次")
     p.add_argument("--batch-pause", type=float, default=45.0, help="长休多少秒")
-    p.add_argument("--scan-limit", type=int, default=20, help="连续多少页没得删就认为删完了")
+    p.add_argument("--scan-limit", type=int, default=10000,
+                   help="连续多少页没得删才放弃（默认等于扫完全表，一般不用改）")
     p.add_argument("--data-dir", default="data", help="进度和日志放哪")
     p.add_argument("--profile-dir", default=".browser-profile", help="浏览器用户目录")
     p.add_argument("--login-timeout", type=int, default=300, help="等登录多少秒")
@@ -567,11 +597,19 @@ def dry_run_scan(api, uid, args, log):
     return 0
 
 
+# 连续拿到多少次空列表，才认定这一轮真的到底
+EMPTY_TOLERANCE = 5
+
+# 瞬时错误（网络抖动、5xx）最多重试几次
+TRANSIENT_RETRIES = 5
+
+
 def delete_loop(page, api, uid, args, log, deleted, skipped):
     done = 0
     stale_pages = 0
     since_id = ""
     rl_hits = 0
+    empty_hits = 0
     start_dt = args.start
     end_dt = args.end.replace(hour=23, minute=59, second=59) if args.end else None
     date_filter = start_dt is not None or end_dt is not None
@@ -600,8 +638,16 @@ def delete_loop(page, api, uid, args, log, deleted, skipped):
             return 2
 
         if not items:
-            log.info("列表返回空，收工。")
-            break
+            # 空列表可能是网络抖动或限速软响应，不一定是真到底。
+            # 重试几次，连续拿到空才认定本轮到尾。
+            empty_hits += 1
+            if empty_hits >= EMPTY_TOLERANCE:
+                log.info(f"连续 {EMPTY_TOLERANCE} 次拿到空列表，本轮到底。")
+                break
+            log.warn(f"列表返回空（{empty_hits}/{EMPTY_TOLERANCE}），3 秒后重试")
+            time.sleep(3)
+            continue
+        empty_hits = 0
 
         pending = []
         for it in items:
@@ -625,42 +671,70 @@ def delete_loop(page, api, uid, args, log, deleted, skipped):
             continue
 
         stale_pages = 0
-        deleted_any = False
+
+        def delete_one(mid, it):
+            """删一条。瞬时错误重试，永久失败才跳过。返回 ok/skip/auth/stop。"""
+            nonlocal done, rl_hits
+            text = " ".join(str(it.get("text_raw") or "").split())[:40]
+            for attempt in range(TRANSIENT_RETRIES + 1):
+                if args.mode == "api":
+                    ok, status, msg = destroy_by_api(api, mid, it)
+                else:
+                    ok = destroy_by_ui(page, uid, it)
+                    status, msg = (200 if ok else 0), ("" if ok else "UI 点击失败")
+
+                if ok:
+                    deleted.add(mid)
+                    done += 1
+                    rl_hits = 0
+                    log.info(f"[{done}] 删了 {mid}  {text}")
+                    return "ok"
+
+                kind = classify(msg, status)
+
+                if kind == "auth":
+                    log.error(f"登录挂了（{msg}），重跑重新登录。")
+                    return "auth"
+
+                if kind == "ratelimit":
+                    rl_hits += 1
+                    if rl_hits > 8:
+                        log.error("一直撞限速，停了，过几小时再来。")
+                        return "stop"
+                    wait = min(900.0, 30.0 * (2 ** (rl_hits - 1))) + random.uniform(0, 20)
+                    log.warn(f"被限速了（{msg}），歇 {wait:.0f} 秒再试。")
+                    time.sleep(wait)
+                    continue
+
+                if kind == "transient" and attempt < TRANSIENT_RETRIES:
+                    wait = 4 * (attempt + 1) + random.uniform(0, 3)
+                    log.warn(f"删除失败（{msg or status}），"
+                             f"{wait:.0f} 秒后重试（{attempt + 1}/{TRANSIENT_RETRIES}）")
+                    time.sleep(wait)
+                    continue
+
+                if kind == "transient":
+                    # 重试耗尽仍是瞬时错误：不写 skipped，否则这条会被永久跳过。
+                    # 本轮先放过，下次运行时它不在 skipped 里，会重新被处理。
+                    log.warn(f"暂时删不掉 {mid}（{msg or status}），"
+                             f"本次先放过，下次运行会重试  {text}")
+                    return "skip"
+
+                # 永久失败（已不可见、不存在、无权限）才写 skipped
+                skipped.add(mid, reason=msg or f"http {status}")
+                log.warn(f"跳过 {mid}：{msg or status}  {text}")
+                return "skip"
+            return "skip"
 
         for mid, it in pending:
             if args.max and done >= args.max:
                 break
 
-            text = " ".join(str(it.get("text_raw") or "").split())[:40]
-
-            if args.mode == "api":
-                ok, status, msg = destroy_by_api(api, mid, it)
-            else:
-                ok = destroy_by_ui(page, uid, it)
-                status, msg = (200 if ok else 0), ("" if ok else "UI 点击失败")
-
-            if ok:
-                deleted.add(mid)
-                deleted_any = True
-                done += 1
-                rl_hits = 0
-                log.info(f"[{done}] 删了 {mid}  {text}")
-            else:
-                kind = classify(msg)
-                if kind == "auth":
-                    log.error(f"登录挂了（{msg}），重跑重新登录。")
-                    return 2
-                if kind == "ratelimit":
-                    rl_hits += 1
-                    if rl_hits > 8:
-                        log.error("一直撞限速，停了，过几小时再来。")
-                        return 3
-                    wait = min(900.0, 30.0 * (2 ** (rl_hits - 1))) + random.uniform(0, 20)
-                    log.warn(f"被限速了（{msg}），歇 {wait:.0f} 秒再试。")
-                    time.sleep(wait)
-                    continue
-                skipped.add(mid, reason=msg or f"http {status}")
-                log.warn(f"跳过 {mid}：{msg or status}  {text}")
+            r = delete_one(mid, it)
+            if r == "auth":
+                return 2
+            if r == "stop":
+                return 3
 
             if args.batch_size and done and done % args.batch_size == 0:
                 log.info(f"删了 {done} 条，歇 {args.batch_pause:.0f} 秒 ...")
@@ -682,14 +756,13 @@ def delete_loop(page, api, uid, args, log, deleted, skipped):
                 break
             since_id = nxt
         else:
-            if deleted_any:
-                # 删过了，列表变了，回第一页重拉
-                since_id = ""
-            else:
-                if not nxt:
-                    log.info("到底了。")
-                    break
-                since_id = nxt
+            # 单向推进，不回第一页。删掉的微博靠 deleted.jsonl 去重。
+            # 回第一页会导致每次删除后都要重新扫过前面所有已处理的页，
+            # 账号里跳过记录一多就会空转，越删越慢。
+            if not nxt:
+                log.info("到底了。")
+                break
+            since_id = nxt
 
     log.info(f"这次删了 {done} 条；累计 {len(deleted)} 条，跳过 {len(skipped)} 条。")
     return 0
