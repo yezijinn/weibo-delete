@@ -4,6 +4,11 @@
 # 删除进度和日志
 data/
 
+# 视频渲染中间产物
+video/
+frames_*/
+silent_*.mp4
+
 # Python
 __pycache__/
 *.py[cod]
