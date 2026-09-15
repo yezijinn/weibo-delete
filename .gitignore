@@ -9,6 +9,9 @@ video/
 frames_*/
 silent_*.mp4
 
+# 演示视频（11MB，放 Release 或本地，不进仓库）
+docs/演示视频-*.mp4
+
 # Python
 __pycache__/
 *.py[cod]
