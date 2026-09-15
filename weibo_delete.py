@@ -324,11 +324,8 @@ def fetch_list(api, uid, since_id=""):
     return items, nxt, total
 
 
-# 快转（快转微博）不能走普通删除，得调取消快转
-QUICK_FORWARD_APIS = [
-    "https://weibo.com/ajax/statuses/cancelQuickForward",
-    "https://weibo.com/ajax/statuses/destroyQuickForward",
-]
+# 快转和普通删除用同一个接口，区别在请求体
+DESTROY_API_QF = "https://weibo.com/ajax/statuses/destroy"
 
 
 def _menus_of(item):
@@ -351,49 +348,67 @@ def is_quick_forward(item):
     return False
 
 
-def _menu_url(item):
-    """菜单里直接带了请求地址的话，优先用它。"""
-    for m in _menus_of(item):
-        blob = _menu_blob(m)
-        if "quick_forward" not in blob and "快转" not in blob:
-            continue
-        for k in ("url", "api", "request_url", "action"):
-            v = m.get(k)
-            if isinstance(v, str) and v.startswith("http"):
-                return v
-    return None
-
-
-def _post(api, url, mid, as_form):
+def _post_raw(api, url, payload, as_form, headers=None):
     if as_form:
-        res = api.call(url, method="POST", form={"id": mid})
+        res = api.call(url, method="POST", form=payload, headers=headers)
     else:
-        res = api.call(url, method="POST", body={"id": mid})
+        res = api.call(url, method="POST", body=payload, headers=headers)
     j = res.get("json") or {}
     ok = str(j.get("ok")) == "1"
     msg = str(j.get("msg") or j.get("error") or res.get("raw") or "").strip()
     return ok, res.get("status"), msg
 
 
-def destroy_by_api(api, mid, item=None):
-    """删一条。快转的调取消快转，普通微博调 destroy。返回 (ok, status, msg)。"""
-    if item is not None and is_quick_forward(item):
-        urls = []
-        u = _menu_url(item)
-        if u:
-            urls.append(u)
-        urls.extend(QUICK_FORWARD_APIS)
-        tried = []
-        for as_form in (True, False):
-            for url in urls:
-                ok, status, msg = _post(api, url, mid, as_form)
-                if ok:
-                    return True, status, msg
-                tag = url.rsplit("/", 1)[-1] + ("(f)" if as_form else "(j)")
-                tried.append("%s=%s" % (tag, status))
-        return False, 0, "取消快转没成功：" + " ".join(tried)
+def _qf_ids(item, mid):
+    """快转的删除 id 是 ori_mid（原微博 id），不是列表里那条的 id。"""
+    ids = []
+    for k in ("ori_mid", "oriMid", "original_mid"):
+        v = item.get(k)
+        if v is None:
+            continue
+        s = str(v)
+        if s and s != "0" and s not in ids:
+            ids.append(s)
+    for key in ("retweeted_status", "retweetedStatus", "original_status"):
+        sub = item.get(key)
+        if isinstance(sub, dict):
+            for k in ("id", "idstr"):
+                v = sub.get(k)
+                if v is not None and str(v) and str(v) not in ids:
+                    ids.append(str(v))
+    for k in ("idstr", "mblogid"):
+        v = item.get(k)
+        if v is not None and str(v) and str(v) not in ids:
+            ids.append(str(v))
+    if str(mid) not in ids:
+        ids.append(str(mid))
+    return ids
 
-    return _post(api, DELETE_API, mid, True)
+
+def destroy_by_api(api, mid, item=None):
+    """删一条。快转要试多个 id + 多种编码。"""
+    if item is not None and is_quick_forward(item):
+        xhr = {
+            "x-requested-with": "XMLHttpRequest",
+            "client-version": "v1.1.247",
+            "server-version": "v2026.09.15.1",
+        }
+        ids = _qf_ids(item, mid)
+        tried = []
+        hint = ""
+        for qid in ids:
+            ok, status, msg = _post_raw(api, DESTROY_API_QF, {"id": qid}, True, xhr)
+            if ok:
+                return True, status, msg
+            tried.append("%s=%s" % (qid[-6:], status))
+            if not hint and msg:
+                hint = msg
+        detail = "取消快转失败：" + " ".join(tried)
+        if hint:
+            detail += " | 服务器说：" + hint[:120]
+        return False, 0, detail
+
+    return _post_raw(api, DELETE_API, {"id": mid}, True)
 
 
 def destroy_by_ui(page, uid, item, timeout=15000):

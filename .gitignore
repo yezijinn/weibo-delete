@@ -1,5 +1,6 @@
 # 登录态和浏览器数据，别传上去
 .browser-profile/
+.browser-profile*.zip
 
 # 删除进度和日志
 data/
