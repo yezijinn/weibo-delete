@@ -13,6 +13,9 @@ silent_*.mp4
 # 演示视频（11MB，放 Release 或本地，不进仓库）
 docs/演示视频-*.mp4
 
+# 临时截图（截图工具直接输出，需要时手动挑出来重命名再提交）
+docs/PixPin_*.png
+
 # Python
 __pycache__/
 *.py[cod]
