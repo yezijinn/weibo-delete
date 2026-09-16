@@ -368,13 +368,33 @@ def _menu_blob(m):
     return " ".join(str(m.get(k, "")) for k in ("type", "name", "action"))
 
 
+def _has_ori(item):
+    """有 ori_mid 说明是转发/快转来的。"""
+    for k in ("ori_mid", "oriMid", "original_mid"):
+        v = item.get(k)
+        if v is None:
+            continue
+        s = str(v)
+        if s and s != "0":
+            return True
+    for key in ("retweeted_status", "retweetedStatus", "original_status"):
+        if isinstance(item.get(key), dict):
+            return True
+    return False
+
+
 def is_quick_forward(item):
-    """菜单里有取消快转，就是快转来的微博。"""
+    """判断是不是快转。
+
+    菜单里带 quick_forward 标记的算；
+    另外有 ori_mid（原微博 id）的转发类也算——快转的原博可能已不可见，
+    菜单标记会丢，但 ori_mid 通常还在。
+    """
     for m in _menus_of(item):
         blob = _menu_blob(m)
         if "quick_forward" in blob or "快转" in blob:
             return True
-    return False
+    return _has_ori(item)
 
 
 def _post_raw(api, url, payload, as_form, headers=None):
@@ -414,30 +434,64 @@ def _qf_ids(item, mid):
     return ids
 
 
-def destroy_by_api(api, mid, item=None):
-    """删一条。快转要试多个 id + 多种编码。"""
-    if item is not None and is_quick_forward(item):
-        xhr = {
-            "x-requested-with": "XMLHttpRequest",
-            "client-version": "v1.1.247",
-            "server-version": "v2026.09.15.1",
-        }
-        ids = _qf_ids(item, mid)
-        tried = []
-        hint = ""
-        for qid in ids:
-            ok, status, msg = _post_raw(api, DESTROY_API_QF, {"id": qid}, True, xhr)
-            if ok:
-                return True, status, msg
-            tried.append("%s=%s" % (qid[-6:], status))
-            if not hint and msg:
-                hint = msg
-        detail = "取消快转失败：" + " ".join(tried)
-        if hint:
-            detail += " | 服务器说：" + hint[:120]
-        return False, 0, detail
+XHR_HEADERS = {
+    "x-requested-with": "XMLHttpRequest",
+    "client-version": "v1.1.247",
+    "server-version": "v2026.09.15.1",
+}
 
-    return _post_raw(api, DELETE_API, {"id": mid}, True)
+
+def _try_quick_forward(api, mid, item):
+    """走取消快转：试所有候选 id。返回 (ok, status, msg)。"""
+    ids = _qf_ids(item, mid)
+    tried = []
+    hint = ""
+    for qid in ids:
+        ok, status, msg = _post_raw(api, DESTROY_API_QF, {"id": qid}, True, XHR_HEADERS)
+        if ok:
+            return True, status, msg
+        tried.append("%s=%s" % (qid[-6:], status))
+        if not hint and msg:
+            hint = msg
+    detail = "取消快转失败：" + " ".join(tried)
+    if hint:
+        detail += " | 服务器说：" + hint[:120]
+    return False, 0, detail
+
+
+def destroy_by_api(api, mid, item=None):
+    """删一条。
+
+    快转的走取消快转（用 ori_mid）；普通微博走 destroy。
+    两条路都试：某条路径失败时自动换另一条，避免因标记缺失而漏删。
+    """
+    quick = item is not None and is_quick_forward(item)
+
+    if quick:
+        ok, status, msg = _try_quick_forward(api, mid, item)
+        if ok:
+            return True, status, msg
+        # 快转路径全失败，如果这条不像转发，再试试普通删除
+        if not _has_ori(item):
+            ok2, s2, m2 = _post_raw(api, DELETE_API, {"id": mid}, True)
+            if ok2:
+                return True, s2, m2
+        return False, status, msg
+
+    # 普通路径
+    ok, status, msg = _post_raw(api, DELETE_API, {"id": mid}, True)
+    if ok:
+        return True, status, msg
+
+    # 普通删除失败。如果这条带 ori_mid（疑似快转但没标记），
+    # 回退试一次取消快转——这类微博的"已不可见"就是这么来的。
+    if item is not None and _has_ori(item):
+        ok2, s2, m2 = _try_quick_forward(api, mid, item)
+        if ok2:
+            return True, s2, m2
+        return False, s2, m2
+
+    return False, status, msg
 
 
 def destroy_by_ui(page, uid, item, timeout=15000):
@@ -905,6 +959,64 @@ def do_settings():
     print("   已保存：每条等 %.1f 秒（上下浮动 %.1f 秒）" % (cfg["delay"], cfg["jitter"]))
 
 
+def do_retry_skipped():
+    """清掉跳过记录，让它们下次重新被尝试。
+
+    旧版本删快转失败时，会把快转误写进 skipped，永远不再处理。
+    快转修复后，这些记录需要清掉才能重删。
+    """
+    p = Path("data") / "skipped.jsonl"
+    if not p.exists():
+        print()
+        print("   没有跳过记录。")
+        return
+
+    lines = [ln for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    n = len(lines)
+    if n == 0:
+        print()
+        print("   跳过记录是空的。")
+        return
+
+    # 按原因粗分：真不可见的 vs 可能误判的
+    import collections
+    c = collections.Counter()
+    for ln in lines:
+        try:
+            reason = json.loads(ln).get("reason", "")
+        except Exception:
+            reason = ""
+        if "不可见" in reason or "不存在" in reason or "权限" in reason:
+            c["大概率真删不掉"] += 1
+        else:
+            c["可能可以删（重试）"] += 1
+
+    print()
+    print("   当前跳过记录 %d 条：" % n)
+    for k, v in c.most_common():
+        print("     %-20s %d 条" % (k, v))
+    print()
+    print("   旧版本的快转 bug 会把能删的微博误判成失败写进来。")
+    print("   清掉记录后，下次运行 [2] 会重新尝试这些微博。")
+    print()
+    try:
+        a = input("   确定要清空跳过记录吗？输入 yes 继续：").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return
+    if a.lower() != "yes":
+        return
+
+    try:
+        p.unlink()
+        print()
+        print("   已清空 %d 条跳过记录。" % n)
+        print("   现在去选 [2] 全部删除，它们会被重新处理。")
+    except Exception as e:
+        print()
+        print(f"   删除失败：{e}")
+
+
 def menu():
     """双击 run.bat 后看到的菜单。"""
     while True:
@@ -921,6 +1033,7 @@ def menu():
         print("   [6] 退出登录（换一个账号用）")
         cfg = load_settings()
         print("   [7] 设置删除间隔（当前每条 %.1f 秒）" % cfg["delay"])
+        print("   [8] 重试之前跳过的微博")
         print("   [0] 退出")
         print()
         try:
@@ -974,6 +1087,9 @@ def menu():
             continue
         elif c == "7":
             do_settings()
+            continue
+        elif c == "8":
+            do_retry_skipped()
             continue
         else:
             print()
