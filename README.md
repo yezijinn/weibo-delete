@@ -26,11 +26,25 @@
 
 ## 1. 下载
 
-打开 https://github.com/yezijinn/weibo-delete/releases/latest
+**国内推荐 Gitee**（下载快）：
 
-下载 **weibo-delete-win32-v3.0.0-full.zip**（约 185 MB）。
+https://gitee.com/yezijinn/weibo-delete/releases/tag/v3.0.0
 
-解压到一个固定文件夹，比如桌面新建一个「微博删除工具」文件夹。
+下载下面**三个文件**，放在同一个文件夹：
+
+- `weibo-delete-win32-v3.0.0-full.zip.part1`（85 MB）
+- `weibo-delete-win32-v3.0.0-full.zip.part2`（85 MB）
+- `合并解压.bat`
+
+然后**双击 `合并解压.bat`**，它会自动合并两个分卷、解压出工具文件夹。
+
+> 为什么要分卷：Gitee 单个附件限制 100 MB，完整包 170 MB，所以拆成两份。
+
+**国外或 Gitee 慢，用 GitHub**：
+
+https://github.com/yezijinn/weibo-delete/releases/latest
+
+下载 **weibo-delete-win32-v3.0.0-full.zip**（约 185 MB），解压即可。
 
 > 解压！不要直接双击 ZIP 里面的 exe，那样用不了。必须把整个文件夹解压出来。
 
@@ -86,7 +100,7 @@
 
 日期框在按钮下方，格式 `2020-01-01`：
 
-- 两个都填 `2013-01-01` 到 `2016-12-31__ = 删这几年
+- 两个都填 `2013-01-01` 到 `2016-12-31` = 删这几年
 - 只填开始 = 删这天之后的
 - 只填结束 = 删这天之前的
 - 留空 + 点「全部删除」= 删所有
@@ -97,7 +111,7 @@
 
 **什么都不用装。**
 
-Windows 10 / 11，解压就能用。浏览器已内置在文件夹里。
+Windows 10 / 11，解压就能用。浏览器已内置在文件夹里，不需要系统装 Edge 或 Chrome。
 
 ## 6. 运行中生成的文件
 
@@ -240,9 +254,6 @@ browser\            内置浏览器（363 MB，别删）
 **Q：exe 双击没反应 / 被杀毒软件删了？**
 可能被杀软误报。看下杀软的隔离区，把程序加信任，或整个文件夹加入白名单。
 
-**Q：提示缺少 内置 Chromium Runtime？**
-按弹窗点「是」装一次即可。或者去微软官网搜 "内置 Chromium Runtime" 下载。只需做一次。
-
 **Q：提示 Python not found？（Python 版）**
 Python 没装好。重新装一次，安装时一定要勾 "Add Python to PATH"。
 
@@ -344,7 +355,7 @@ data/skipped.jsonl     永久删不掉的 id
 data/settings.json     间隔设置（仅 Python 版）
 data/run.log           运行日志
 .browser-profile/      浏览器数据（Python 版）
-profile/               浏览器数据（exe 版）
+browser-profile/       浏览器数据（exe 版）
 ```
 
 ### 主要参数（Python 版）
