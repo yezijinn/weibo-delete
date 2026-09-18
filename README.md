@@ -28,7 +28,7 @@
 
 **国内推荐 Gitee**（下载快）：
 
-https://gitee.com/yezijinn/weibo-delete/releases/tag/v3.0.0
+https://gitee.com/yezijinn/weibo-delete/releases
 
 下载下面**三个文件**，放在同一个文件夹：
 
@@ -42,7 +42,7 @@ https://gitee.com/yezijinn/weibo-delete/releases/tag/v3.0.0
 
 **国外或 Gitee 慢，用 GitHub**：
 
-https://github.com/yezijinn/weibo-delete/releases/latest
+https://github.com/yezijinn/weibo-delete/releases
 
 下载 **weibo-delete-win32-v3.0.0-full.zip**（约 185 MB），解压出「微博批量删除工具」文件夹。
 
