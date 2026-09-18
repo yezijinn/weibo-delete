@@ -30,13 +30,19 @@
 
 https://gitee.com/yezijinn/weibo-delete/releases
 
+![Gitee 下载页面](docs/gitee-download.png)
+
 下载下面**三个文件**，放在同一个文件夹：
 
 - `weibo-delete-win32-v3.0.0-full.zip.part1`（85 MB）
 - `weibo-delete-win32-v3.0.0-full.zip.part2`（85 MB）
 - `合并解压.bat`
 
-然后**双击 `合并解压.bat`**，它会自动合并两个分卷、解压出「微博批量删除工具」文件夹，并删掉临时的分卷和 zip。
+三个文件都要下载，放在同一个文件夹里，然后**双击 `合并解压.bat`**：
+
+![合并解压](docs/gitee-split.png)
+
+它会自动合并两个分卷、解压出「微博批量删除工具」文件夹，并删掉临时的分卷和 zip。
 
 > 为什么要分卷：Gitee 单个附件限制 100 MB，完整包 170 MB，所以拆成两份。
 
@@ -44,13 +50,17 @@ https://gitee.com/yezijinn/weibo-delete/releases
 
 https://github.com/yezijinn/weibo-delete/releases
 
+![GitHub 下载页面](docs/github-download.png)
+
 下载 **weibo-delete-win32-v3.0.0-full.zip**（约 185 MB），解压出「微博批量删除工具」文件夹。
 
 > 解压！不要直接双击 ZIP 里面的 exe，那样用不了。必须把整个文件夹解压出来。
 
 ## 2. 打开
 
-双击 `WeiboDelete.exe`。
+双击 `WeiboDelete.exe`：
+
+![打开程序](docs/screenshot-main.png)
 
 程序窗口打开（占桌面 80%，居中），**左右分栏**：
 
@@ -140,7 +150,7 @@ browser\            内置浏览器（363 MB，别删）
 
 ## 1. 下载
 
-![下载方式](docs/screenshot-download.png)
+![GitHub 仓库](docs/github-download.png)
 
 1. 打开 https://github.com/yezijinn/weibo-delete
 2. 点绿色的 **Code** 按钮
@@ -173,8 +183,6 @@ browser\            内置浏览器（363 MB，别删）
 ## 4. 开始删除
 
 **双击 `run.bat`**，会出现这样的菜单：
-
-![运行菜单](docs/screenshot-menu.png)
 
 ```
 ==============================================
@@ -225,13 +233,8 @@ browser\            内置浏览器（363 MB，别删）
 - 范围 0.5 ~ 60 秒，太小容易被限速
 - 设置会保存到 `data/settings.json`，下次运行自动生效
 
-### 删的时候大概长这样
-
-![删除过程 1](docs/screenshot-01.png)
-
-![删除过程 2](docs/screenshot-02.png)
-
 ---
+
 
 # 删除要多久
 
