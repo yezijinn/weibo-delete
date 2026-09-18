@@ -66,9 +66,9 @@ namespace WeiboDelete
             // 按钮区（左上角，多行自动换行）
             FlowLayoutPanel top = new FlowLayoutPanel();
             top.Dock = DockStyle.Top;
-            top.Height = 116;
-            top.Padding = new Padding(6);
-            top.WrapContents = true;
+            top.Height = 40;
+            top.Padding = new Padding(6, 2, 6, 2);
+            top.WrapContents = false;
 
             btnCount = MakeBtn("看看有多少条", OnCount);
             btnAll = MakeBtn("全部删除", OnDeleteAll);
@@ -87,37 +87,44 @@ namespace WeiboDelete
             top.Controls.Add(btnRetry);
             top.Controls.Add(btnLogout);
             top.Controls.Add(btnSetting);
-            top.Controls.Add(btnStop);
 
-            // 日期输入
+            // 用两个独立 FlowLayoutPanel 强制两行布局
+            FlowLayoutPanel row2 = new FlowLayoutPanel();
+            row2.Dock = DockStyle.Top;
+            row2.Height = 40;
+            row2.Padding = new Padding(6, 2, 6, 2);
+            row2.WrapContents = false;
+
+            row2.Controls.Add(btnStop);
+
             Label lblFrom = new Label();
             lblFrom.Text = "日期：";
             lblFrom.AutoSize = true;
-            lblFrom.Padding = new Padding(12, 8, 0, 0);
-            top.Controls.Add(lblFrom);
+            lblFrom.Padding = new Padding(20, 8, 0, 0);
+            row2.Controls.Add(lblFrom);
 
             dateFrom = new TextBox();
             dateFrom.Width = 88;
             dateFrom.Margin = new Padding(3, 6, 3, 3);
-            top.Controls.Add(dateFrom);
+            row2.Controls.Add(dateFrom);
 
             Label lblTo = new Label();
             lblTo.Text = "到";
             lblTo.AutoSize = true;
             lblTo.Padding = new Padding(0, 8, 0, 0);
-            top.Controls.Add(lblTo);
+            row2.Controls.Add(lblTo);
 
             dateTo = new TextBox();
             dateTo.Width = 88;
             dateTo.Margin = new Padding(3, 6, 3, 3);
-            top.Controls.Add(dateTo);
+            row2.Controls.Add(dateTo);
 
             Label lblHint = new Label();
             lblHint.Text = "（2020-01-01 格式，留空不限）";
             lblHint.AutoSize = true;
             lblHint.ForeColor = Color.Gray;
             lblHint.Padding = new Padding(6, 8, 0, 0);
-            top.Controls.Add(lblHint);
+            row2.Controls.Add(lblHint);
 
             // 提示条（按钮区下方）
             Panel hintWrap = new Panel();
@@ -155,8 +162,9 @@ namespace WeiboDelete
 
             // 添加顺序（倒序 Dock 计算）：先 Fill，再 Top/Bottom
             leftPanel.Controls.Add(logBox);     // Fill，占剩余
-            leftPanel.Controls.Add(hintWrap);   // Top，提示条
-            leftPanel.Controls.Add(top);        // Top，按钮区
+            leftPanel.Controls.Add(hintWrap);   // Top，提示条（按钮下方）
+            leftPanel.Controls.Add(row2);       // Top，第二行（停止+日期）
+            leftPanel.Controls.Add(top);        // Top，第一行（7 个按钮，最顶）
             leftPanel.Controls.Add(status);     // Bottom，状态栏
 
             // ============ 右列：浏览器 ============
@@ -256,6 +264,10 @@ namespace WeiboDelete
                 deletedStore = Store.Load(Path.Combine(dataDir, "deleted.jsonl"));
                 skippedStore = Store.Load(Path.Combine(dataDir, "skipped.jsonl"));
 
+                AppendLog("本程序完全开源，免费，公开，不收费。");
+                AppendLog("作者主页 https://github.com/yezijinn");
+                AppendLog("作者主页 https://gitee.com/yezijinn");
+                AppendLog("");
                 AppendLog("微博批量删除工具");
                 AppendLog("数据目录：" + dataDir);
                 AppendLog("");
