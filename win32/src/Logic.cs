@@ -91,7 +91,7 @@ namespace WeiboDelete
             await SleepSecAsync(b + extra);
         }
 
-        public async Task<ListResult> FetchListAsync(string uid, string sinceId)
+        public virtual async Task<ListResult> FetchListAsync(string uid, string sinceId)
         {
             ListResult r = new ListResult();
 
@@ -255,7 +255,7 @@ namespace WeiboDelete
             return 0;
         }
 
-        private async Task<bool> PostDestroyAsync(string id, bool quick)
+        protected virtual async Task<bool> PostDestroyAsync(string id, bool quick)
         {
             string headers = quick ? XhrQuick : XhrNormal;
             string body = "id=" + Uri.EscapeDataString(id);
@@ -296,7 +296,7 @@ namespace WeiboDelete
                 ids.Add(v);
         }
 
-        public async Task<bool> DestroyAsync(string mid, Item item)
+        public virtual async Task<bool> DestroyAsync(string mid, Item item)
         {
             LastError = "";
             bool quick = item != null && (item.Quick || item.HasOri);
@@ -424,6 +424,47 @@ namespace WeiboDelete
                 emptyHits = 0;
 
                 bool dateFilter = startDt.HasValue || endDt.HasValue;
+
+                // ===== 先算本页的时间边界，用于整页快速判定 =====
+                // 列表按时间倒序：第一条最新，最后一条最老
+                DateTime? pageNewest = null;   // 本页最新的时间
+                DateTime? pageOldest = null;   // 本页最老的时间
+                int nNoTime = 0;               // 时间解析不出来的条数
+                if (dateFilter)
+                {
+                    for (int i = 0; i < lr.Items.Count; i++)
+                    {
+                        Item t = lr.Items[i];
+                        if (!t.Created.HasValue) { nNoTime++; continue; }
+                        if (!pageNewest.HasValue) pageNewest = t.Created;
+                        pageOldest = t.Created;
+                    }
+                }
+
+                // 快速判定 1：整页都比 endDt 还新 → 整页跳过，不用逐条比较
+                if (dateFilter && endDt.HasValue && pageOldest.HasValue
+                    && nNoTime == 0 && pageOldest.Value > endDt.Value)
+                {
+                    stale++;
+                    Log("本页 " + lr.Items.Count + " 条都比 "
+                        + endDt.Value.ToString("yyyy-MM-dd")
+                        + " 新，整页跳过（连续 " + stale + " 页）");
+                    if (string.IsNullOrEmpty(lr.NextSince)) { Log("到底了。"); break; }
+                    sinceId = lr.NextSince;
+                    continue;
+                }
+
+                // 快速判定 2：整页都比 startDt 还老 → 已经越过目标范围，立即停止
+                if (dateFilter && startDt.HasValue && pageNewest.HasValue
+                    && nNoTime == 0 && pageNewest.Value < startDt.Value)
+                {
+                    Log("本页 " + lr.Items.Count + " 条都比 "
+                        + startDt.Value.ToString("yyyy-MM-dd")
+                        + " 老，范围内已扫完，停");
+                    break;
+                }
+
+                // ===== 落到这里说明本页和日期范围有交集，逐条处理 =====
                 List<Item> pending = new List<Item>();
                 int nDone = 0;      // 已处理过
                 int nBadDate = 0;   // 日期不符 / 时间认不出

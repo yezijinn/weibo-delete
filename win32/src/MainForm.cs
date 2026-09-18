@@ -73,7 +73,7 @@ namespace WeiboDelete
             btnCount = MakeBtn("看看有多少条", OnCount);
             btnAll = MakeBtn("全部删除", OnDeleteAll);
             btnDate = MakeBtn("按日期删除", OnDeleteByDate);
-            btnTest = MakeBtn("先删 3 条试试", OnTest3);
+            btnTest = MakeBtn("删最新 1 条试试", OnTest1);
             btnRetry = MakeBtn("重试跳过的", OnRetrySkipped);
             btnLogout = MakeBtn("退出登录", OnLogout);
             btnSetting = MakeBtn("设置间隔", OnSetting);
@@ -610,17 +610,20 @@ namespace WeiboDelete
             }
         }
 
-        private async void OnTest3(object sender, EventArgs e)
+        private async void OnTest1(object sender, EventArgs e)
         {
             if (busy) return;
             if (!await EnsureLoginAsync()) return;
 
             DialogResult r = MessageBox.Show(
-                "会删掉 3 条微博，用来验证工具能用。\n\n确定继续吗？",
-                "确认", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                "会删掉你最新发的 1 条微博，用来验证工具能用。\n\n"
+                + "注意：删的是最新那条，不是随便一条。\n"
+                + "如果这条你想留，请点「取消」，改用「按日期删除」。\n\n"
+                + "确定继续吗？",
+                "确认", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
             if (r != DialogResult.Yes) return;
 
-            await RunDeleteAsync(3, false);
+            await RunDeleteAsync(1, false);
         }
 
         private async Task RunDeleteAsync(int maxCount, bool verify)

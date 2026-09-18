@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace WeiboDelete
@@ -8,6 +9,10 @@ namespace WeiboDelete
     public class Api
     {
         private readonly Browser browser;
+
+        // 每个网络请求前加 50~300ms 随机延迟，模拟人手操作节奏。
+        // 内置行为，不可关闭。
+        private static readonly Random rnd = new Random();
 
         public Api(Browser browser) { this.browser = browser; }
 
@@ -20,6 +25,9 @@ namespace WeiboDelete
                                              string form, string jsonBody,
                                              string extraHeadersJson)
         {
+            // 随机延迟 50~300ms，避免请求过于密集
+            await Task.Delay(rnd.Next(50, 301));
+
             StringBuilder js = new StringBuilder();
             js.Append("(async()=>{");
             js.Append("const o={method:").Append(Json.JsStr(method == null ? "GET" : method)).Append(",");
