@@ -3,22 +3,21 @@ using System.Drawing;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using Microsoft.Web.WebView2.Core;
-using Microsoft.Web.WebView2.WinForms;
 
 namespace WeiboDelete
 {
     public class MainForm : Form
     {
-        private WebView2 web;
         private RichTextBox logBox;
         private ToolStripStatusLabel statLabel;
+        private Label hintLabel;
         private Button btnCount, btnAll, btnTest, btnRetry, btnLogout, btnStop;
 
         private Logger log;
         private Store deletedStore, skippedStore;
         private Api api;
         private Logic logic;
+        private Browser browser;
 
         private volatile bool stopFlag = false;
         private bool busy = false;
@@ -31,11 +30,10 @@ namespace WeiboDelete
         {
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
             dataDir = Path.Combine(baseDir, "data");
-            profileDir = Path.Combine(baseDir, "profile");
+            profileDir = Path.Combine(baseDir, "browser-profile");
 
             Text = "微博批量删除工具";
 
-            // 初始窗口 = 桌面工作区的 80%，水平垂直居中
             Rectangle wa = Screen.PrimaryScreen.WorkingArea;
             int w = (int)(wa.Width * 0.8);
             int h = (int)(wa.Height * 0.8);
@@ -49,7 +47,6 @@ namespace WeiboDelete
             Height = h;
             Left = wa.Left + (wa.Width - w) / 2;
             Top = wa.Top + (wa.Height - h) / 2;
-
             MinimumSize = new Size(760, 520);
 
             BuildUI();
@@ -84,8 +81,17 @@ namespace WeiboDelete
             top.Controls.Add(btnStop);
             topWrap.Controls.Add(top);
 
-            web = new WebView2();
-            web.Dock = DockStyle.Fill;
+            Panel hintWrap = new Panel();
+            hintWrap.Dock = DockStyle.Top;
+            hintWrap.Height = 40;
+
+            hintLabel = new Label();
+            hintLabel.Dock = DockStyle.Fill;
+            hintLabel.TextAlign = ContentAlignment.MiddleLeft;
+            hintLabel.Padding = new Padding(10, 0, 0, 0);
+            hintLabel.ForeColor = Color.FromArgb(0, 100, 180);
+            hintLabel.Text = "正在启动浏览器……";
+            hintWrap.Controls.Add(hintLabel);
 
             logBox = new RichTextBox();
             logBox.Dock = DockStyle.Fill;
@@ -97,22 +103,17 @@ namespace WeiboDelete
             logBox.ScrollBars = RichTextBoxScrollBars.Both;
             logBox.HideSelection = false;
 
-            SplitContainer split = new SplitContainer();
-            split.Dock = DockStyle.Fill;
-            split.Orientation = Orientation.Horizontal;
-            split.SplitterDistance = 360;
-            split.Panel1.Controls.Add(web);
-            split.Panel2.Controls.Add(logBox);
-
             StatusStrip status = new StatusStrip();
             statLabel = new ToolStripStatusLabel("准备中……");
             status.Items.Add(statLabel);
 
-            Controls.Add(split);
+            Controls.Add(logBox);
+            Controls.Add(hintWrap);
             Controls.Add(topWrap);
             Controls.Add(status);
 
-            split.BringToFront();
+            logBox.BringToFront();
+            hintWrap.BringToFront();
             topWrap.BringToFront();
             status.BringToFront();
         }
@@ -128,6 +129,12 @@ namespace WeiboDelete
             return b;
         }
 
+        private void SetHint(string s)
+        {
+            if (InvokeRequired) { Invoke(new Action<string>(SetHint), s); return; }
+            hintLabel.Text = s;
+        }
+
         private async void OnLoaded(object sender, EventArgs e)
         {
             try
@@ -139,80 +146,66 @@ namespace WeiboDelete
                 deletedStore = Store.Load(Path.Combine(dataDir, "deleted.jsonl"));
                 skippedStore = Store.Load(Path.Combine(dataDir, "skipped.jsonl"));
 
-                AppendLog("微博批量删除工具（Win32 版）");
+                AppendLog("微博批量删除工具");
                 AppendLog("数据目录：" + dataDir);
-                AppendLog("正在初始化浏览器内核……");
+                AppendLog("");
 
-                // 先检查系统里有没有 WebView2 Runtime
-                string ver = null;
+                string exe = Browser.FindBrowser();
+                if (exe == null)
+                {
+                    AppendLog("找不到 Edge 或 Chrome。");
+                    MessageBox.Show(
+                        "系统里找不到 Microsoft Edge 或 Google Chrome。\n\n"
+                        + "Windows 10/11 一般自带 Edge，如果没有请先装一个。",
+                        "找不到浏览器", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+                AppendLog("浏览器：" + exe);
+                SetHint("正在启动浏览器……");
+
+                int port = 9222;
+                browser = new Browser();
                 try
                 {
-                    CoreWebView2Environment tmp =
-                        await CoreWebView2Environment.CreateAsync(null, profileDir);
-                    ver = tmp.BrowserVersionString;
+                    await Task.Run(new Action(delegate { browser.Launch(profileDir, port); }));
                 }
-                catch (Exception ex0)
+                catch (Exception ex)
                 {
-                    ver = null;
-                    AppendLog("检测浏览器内核失败：" + ex0.Message);
-                }
-
-                if (string.IsNullOrEmpty(ver))
-                {
-                    AppendLog("系统未安装 WebView2 Runtime。");
-                        DialogResult dr = MessageBox.Show(
-                            "本程序需要 Microsoft Edge WebView2 Runtime 才能运行。"
-                            + Environment.NewLine + Environment.NewLine
-                            + "Win10 1803 以上 / Win11 系统一般自带。你的系统检测不到它。"
-                            + Environment.NewLine + Environment.NewLine
-                            + "是否现在打开微软官方下载页面？"
-                            + Environment.NewLine
-                            + "（选「是」会打开浏览器，下载安装后重新运行本程序即可）",
-                            "缺少浏览器内核",
-                            MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
-                    if (dr == DialogResult.Yes)
-                    {
-                        try
-                        {
-                            System.Diagnostics.Process.Start(
-                                "https://developer.microsoft.com/microsoft-edge/webview2/");
-                        }
-                        catch { }
-                    }
-                    AppendLog("已提示用户安装 WebView2 Runtime，程序暂停。");
+                    AppendLog("启动浏览器失败：" + ex.Message);
+                    MessageBox.Show(ex.Message, "启动失败",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
 
-                AppendLog("浏览器内核版本：" + ver);
-                CoreWebView2Environment env =
-                    await CoreWebView2Environment.CreateAsync(null, profileDir);
-                await web.EnsureCoreWebView2Async(env);
+                AppendLog("正在打开微博……");
+                SetHint("正在打开微博，请在弹出的浏览器窗口里登录……");
+                await browser.OpenPageAsync("https://weibo.com");
 
-                web.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
-                web.CoreWebView2.Settings.IsStatusBarEnabled = false;
-                web.CoreWebView2.Navigate("https://weibo.com");
-
-                api = new Api(web);
+                api = new Api(browser);
                 logic = new Logic(api, log, deletedStore, skippedStore,
                                   AppendLog, UpdateStat, IsStop, GetDelay, GetJitter);
 
+                for (int i = 0; i < 60; i++)
+                {
+                    await Task.Delay(500);
+                    string href = await api.EvalAsync("location.href");
+                    if (!string.IsNullOrEmpty(href) && href.IndexOf("weibo.com") >= 0)
+                        break;
+                }
+
                 ready = true;
-                AppendLog("浏览器就绪。");
+                AppendLog("页面加载完成。");
                 AppendLog("历史进度：已删 " + deletedStore.Count + " 条，跳过 " + skippedStore.Count + " 条");
                 AppendLog("");
-                AppendLog("如果上方窗口显示微博登录页，请先扫码登录。");
+                AppendLog("请在弹出的浏览器窗口里扫码登录，登录后再点上方按钮。");
+                SetHint("请在浏览器窗口里扫码登录，登录后点上方按钮");
                 UpdateStat(deletedStore.Count, skippedStore.Count);
             }
             catch (Exception ex)
             {
                 AppendLog("初始化失败：" + ex.Message);
-                MessageBox.Show(
-                    "浏览器内核初始化失败。\n\n" +
-                    "常见原因：\n" +
-                    "1. 系统缺少 WebView2 Runtime（Win10/11 一般自带）\n" +
-                    "2. 杀毒软件拦截了 WebView2Loader.dll\n\n" +
-                    "错误详情：" + ex.Message,
-                    "初始化失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("初始化失败：\n\n" + ex.Message,
+                    "出错", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -262,7 +255,7 @@ namespace WeiboDelete
             if (string.IsNullOrEmpty(uid))
             {
                 MessageBox.Show(
-                    "还没登录。\n\n请在上方浏览器窗口里扫码登录微博，登录后再点按钮。",
+                    "还没登录。\n\n请在浏览器窗口里扫码登录微博，登录后再点按钮。",
                     "未登录", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return false;
             }
@@ -309,11 +302,13 @@ namespace WeiboDelete
             if (!await EnsureLoginAsync()) return;
 
             DialogResult r = MessageBox.Show(
-                "会删掉账号里所有未删除的微博，删了就找不回来。\n\n确定继续吗？",
+                "会删掉账号里所有未删除的微博，删了就找不回来。\n\n"
+                + "删完后会自动清缓存并做一次全面复核，确保没有遗漏。\n\n"
+                + "确定继续吗？",
                 "确认删除", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
             if (r != DialogResult.Yes) return;
 
-            await RunDeleteAsync(0);
+            await RunDeleteAsync(0, true);
         }
 
         private async void OnTest3(object sender, EventArgs e)
@@ -326,19 +321,57 @@ namespace WeiboDelete
                 "确认", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (r != DialogResult.Yes) return;
 
-            await RunDeleteAsync(3);
+            await RunDeleteAsync(3, false);
         }
 
-        private async Task RunDeleteAsync(int maxCount)
+        private async Task RunDeleteAsync(int maxCount, bool verify)
         {
             SetBusy(true);
             stopFlag = false;
-            AppendLog("");
-            AppendLog("=== 开始删除" + (maxCount > 0 ? "（最多 " + maxCount + " 条）" : "") + " ===");
             try
             {
                 string uid = await GetUidAsync();
+
+                AppendLog("");
+                AppendLog("=== 第一轮：开始删除"
+                          + (maxCount > 0 ? "（最多 " + maxCount + " 条）" : "") + " ===");
                 await logic.RunAsync(uid, maxCount);
+
+                if (!verify || stopFlag) return;
+
+                AppendLog("");
+                AppendLog("=== 清空浏览器缓存 ===");
+                SetHint("正在清空缓存，准备复核……");
+                try
+                {
+                    await browser.ClearCacheAsync();
+                    AppendLog("缓存已清空。");
+                }
+                catch (Exception ex)
+                {
+                    AppendLog("清缓存失败（不影响复核）：" + ex.Message);
+                }
+
+                AppendLog("");
+                AppendLog("=== 第二轮：全面复核，确认没有遗漏 ===");
+                SetHint("正在复核，确认没有遗漏……");
+                int before = deletedStore.Count;
+                await logic.RunAsync(uid, 0);
+                int after = deletedStore.Count;
+                int extra = after - before;
+
+                AppendLog("");
+                if (extra <= 0)
+                {
+                    AppendLog("复核完成：没有发现遗漏，全部删干净了。");
+                    SetHint("完成，全部删干净了");
+                }
+                else
+                {
+                    AppendLog("复核完成：又删掉了 " + extra + " 条漏网的。");
+                    SetHint("完成，额外删掉 " + extra + " 条");
+                }
+                UpdateStat(deletedStore.Count, skippedStore.Count);
             }
             catch (Exception ex)
             {
@@ -362,10 +395,10 @@ namespace WeiboDelete
                 return;
             }
             DialogResult r = MessageBox.Show(
-                "当前有 " + n + " 条跳过记录。\n\n" +
-                "清空后，这些微博会在下次删除时重新被尝试。\n" +
-                "真正删不掉的（原博已不可见）会再次被跳过。\n\n" +
-                "确定清空吗？",
+                "当前有 " + n + " 条跳过记录。\n\n"
+                + "清空后，这些微博会在下次删除时重新被尝试。\n"
+                + "真正删不掉的（原博已不可见）会再次被跳过。\n\n"
+                + "确定清空吗？",
                 "重试跳过的", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (r != DialogResult.Yes) return;
 
@@ -379,12 +412,13 @@ namespace WeiboDelete
         {
             if (busy) return;
             DialogResult r = MessageBox.Show(
-                "会清掉本机保存的登录状态，下次运行要重新扫码。\n\n确定吗？",
+                "会关掉浏览器并清掉本机保存的登录状态，下次运行要重新扫码。\n\n确定吗？",
                 "退出登录", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
             if (r != DialogResult.Yes) return;
 
             try
             {
+                if (browser != null) { browser.Dispose(); browser = null; }
                 if (Directory.Exists(profileDir))
                     Directory.Delete(profileDir, true);
                 AppendLog("已退出登录。请关闭程序后重新打开。");
@@ -392,7 +426,7 @@ namespace WeiboDelete
             }
             catch (Exception ex)
             {
-                MessageBox.Show("清理失败：" + ex.Message + "\n\n可能是浏览器还开着，关掉所有窗口再试。",
+                MessageBox.Show("清理失败：" + ex.Message + "\n\n可能是浏览器还开着，关掉浏览器再试。",
                     "失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
@@ -413,6 +447,7 @@ namespace WeiboDelete
                 if (r != DialogResult.Yes) { e.Cancel = true; return; }
                 stopFlag = true;
             }
+            try { if (browser != null) browser.Dispose(); } catch { }
         }
     }
 }

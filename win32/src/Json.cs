@@ -166,5 +166,25 @@ namespace WeiboDelete
             long n = Num(json, "ok", 0);
             return n == 1;
         }
+
+        /// <summary>把字符串转义成 JS 双引号字面量。</summary>
+        public static string JsStr(string s)
+        {
+            if (s == null) return "\"\"";
+            StringBuilder sb = new StringBuilder("\"");
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (c == '\\') sb.Append("\\\\");
+                else if (c == '"') sb.Append("\\\"");
+                else if (c == '\n') sb.Append("\\n");
+                else if (c == '\r') sb.Append("\\r");
+                else if (c == '\t') sb.Append("\\t");
+                else if (c < 32) sb.Append("\\u").Append(((int)c).ToString("x4"));
+                else sb.Append(c);
+            }
+            sb.Append("\"");
+            return sb.ToString();
+        }
     }
 }

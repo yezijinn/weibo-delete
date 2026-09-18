@@ -101,7 +101,12 @@ namespace WeiboDelete
             string text = Json.Str(res, "text");
             if (text == null) text = "";
 
-            if (status != 200) { r.Error = "HTTP " + status; return r; }
+            if (status != 200)
+            {
+                string detail = Json.Str(res, "text");
+                r.Error = "HTTP " + status + (string.IsNullOrEmpty(detail) ? "" : "  " + Trunc(detail, 200));
+                return r;
+            }
             if (!Json.Ok(text)) { r.Error = "接口返回失败：" + Trunc(text, 100); return r; }
 
             string arr = Json.Arr(text, "list");

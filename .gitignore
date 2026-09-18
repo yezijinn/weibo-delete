@@ -33,3 +33,6 @@ Thumbs.db
 win32/build/
 win32/dist/
 win32/profile/
+
+# Win32 版内置浏览器（363 MB，走 Release 分发，不进仓库）
+win32/browser/
