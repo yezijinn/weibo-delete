@@ -36,7 +36,7 @@ https://gitee.com/yezijinn/weibo-delete/releases/tag/v3.0.0
 - `weibo-delete-win32-v3.0.0-full.zip.part2`（85 MB）
 - `合并解压.bat`
 
-然后**双击 `合并解压.bat`**，它会自动合并两个分卷、解压出工具文件夹。
+然后**双击 `合并解压.bat`**，它会自动合并两个分卷、解压出「微博批量删除工具」文件夹，并删掉临时的分卷和 zip。
 
 > 为什么要分卷：Gitee 单个附件限制 100 MB，完整包 170 MB，所以拆成两份。
 
@@ -44,7 +44,7 @@ https://gitee.com/yezijinn/weibo-delete/releases/tag/v3.0.0
 
 https://github.com/yezijinn/weibo-delete/releases/latest
 
-下载 **weibo-delete-win32-v3.0.0-full.zip**（约 185 MB），解压即可。
+下载 **weibo-delete-win32-v3.0.0-full.zip**（约 185 MB），解压出「微博批量删除工具」文件夹。
 
 > 解压！不要直接双击 ZIP 里面的 exe，那样用不了。必须把整个文件夹解压出来。
 
