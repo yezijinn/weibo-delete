@@ -71,6 +71,27 @@ namespace WeiboDelete
             return sb.ToString();
         }
 
+        /// <summary>取值：先当字符串找，找不到再当数字找。返回字符串形式。</summary>
+        public static string StrOrNum(string json, string key)
+        {
+            string v = Str(json, key);
+            if (!string.IsNullOrEmpty(v)) return v;
+
+            // 试着当数字
+            string pat = "\"" + key + "\"";
+            int i = json.IndexOf(pat, StringComparison.Ordinal);
+            if (i < 0) return null;
+            int c = json.IndexOf(':', i + pat.Length);
+            if (c < 0) return null;
+            int p2 = c + 1;
+            while (p2 < json.Length && (json[p2] == ' ' || json[p2] == '\t')) p2++;
+            int st = p2;
+            if (p2 < json.Length && (json[p2] == '-' || json[p2] == '+')) p2++;
+            while (p2 < json.Length && char.IsDigit(json[p2])) p2++;
+            if (p2 == st) return null;
+            return json.Substring(st, p2 - st);
+        }
+
         public static long Num(string json, string key, long fallback)
         {
             if (json == null) return fallback;

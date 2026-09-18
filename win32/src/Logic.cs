@@ -11,6 +11,8 @@ namespace WeiboDelete
         public string OriMid;
         public string Mblogid;
         public string Text;
+        public string CreatedAt;
+        public DateTime? Created;
         public bool Quick;
         public bool HasOri;
     }
@@ -50,6 +52,10 @@ namespace WeiboDelete
         public string LastError = "";
         public string LastMsg = "";
         public int LastStatus;
+
+        /// <summary>本轮是否因错误中途退出（结果不可信）。</summary>
+        public bool LastRunAborted = false;
+        public string LastAbortReason = "";
 
         private static readonly Random rnd = new Random();
 
@@ -117,9 +123,18 @@ namespace WeiboDelete
                     r.Items.Add(ParseItem(objs[i]));
             }
 
-            string nxt = Json.Str(text, "since_id");
-            r.NextSince = (nxt == null || nxt == "0") ? "" : nxt;
+            // since_id 有时是字符串，有时是数字，用 StrOrNum 兼容两种
+            string nxt = Json.StrOrNum(text, "since_id");
+            r.NextSince = (nxt == null || nxt == "0" || nxt == "") ? "" : nxt;
             r.Total = Json.Num(text, "total", -1);
+
+            // 调试日志：看看到底拿到什么
+            if (string.IsNullOrEmpty(r.NextSince) && r.Items.Count > 0)
+            {
+                string tail = text.Length > 400 ? text.Substring(text.Length - 400) : text;
+                Log("[DEBUG] 本页 " + r.Items.Count + " 条，since_id=" + (nxt ?? "(null)")
+                    + "  total=" + r.Total + "  末尾=" + tail.Replace("\n", " ").Replace("\r", ""));
+            }
             return r;
         }
 
@@ -132,12 +147,112 @@ namespace WeiboDelete
             it.Mblogid = Json.Str(obj, "mblogid");
             it.Text = Json.Str(obj, "text_raw");
             if (it.Text == null) it.Text = "";
+            it.CreatedAt = Json.Str(obj, "created_at");
+            it.Created = ParseCreatedAt(it.CreatedAt);
 
             it.Quick = obj.IndexOf("quick_forward", StringComparison.Ordinal) >= 0;
             it.HasOri = !string.IsNullOrEmpty(it.OriMid) && it.OriMid != "0";
             if (!it.HasOri && obj.IndexOf("retweeted_status", StringComparison.Ordinal) >= 0)
                 it.HasOri = true;
             return it;
+        }
+
+        /// <summary>
+        /// 解析微博返回的 created_at。
+        /// 微博给的是 "Wed Mar 24 18:00:37 +0800 2021" —— 时区是 +0800（无冒号），
+        /// .NET 的 zzz 格式符要求 +08:00，直接 TryParseExact 会失败。
+        /// 所以先用正则手工拆，再用 DateTime 拼。
+        /// </summary>
+        private static DateTime? ParseCreatedAt(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return null;
+            s = s.Trim();
+
+            // ===== 1. 英文格式：Wed Mar 24 18:00:37 +0800 2021 =====
+            System.Text.RegularExpressions.Match m =
+                System.Text.RegularExpressions.Regex.Match(s,
+                    @"^([A-Za-z]{3})\s+([A-Za-z]{3})\s+(\d{1,2})\s+" +
+                    @"(\d{1,2}):(\d{2}):(\d{2})\s+([+-]\d{4})\s+(\d{4})$");
+            if (m.Success)
+            {
+                try
+                {
+                    int mon = MonthNum(m.Groups[2].Value);
+                    int day = int.Parse(m.Groups[3].Value);
+                    int hh = int.Parse(m.Groups[4].Value);
+                    int mi = int.Parse(m.Groups[5].Value);
+                    int ss = int.Parse(m.Groups[6].Value);
+                    int year = int.Parse(m.Groups[8].Value);
+                    if (mon > 0)
+                        return new DateTime(year, mon, day, hh, mi, ss);
+                }
+                catch { }
+            }
+
+            // ===== 2. 中文相对时间 =====
+            DateTime now = DateTime.Now;
+            if (s == "刚刚") return now;
+            m = System.Text.RegularExpressions.Regex.Match(s, @"^(\d+)秒前$");
+            if (m.Success)
+                return now.AddSeconds(-int.Parse(m.Groups[1].Value));
+            m = System.Text.RegularExpressions.Regex.Match(s, @"^(\d+)分钟前$");
+            if (m.Success)
+                return now.AddMinutes(-int.Parse(m.Groups[1].Value));
+            m = System.Text.RegularExpressions.Regex.Match(s, @"^今天\s*(\d{1,2}):(\d{2})$");
+            if (m.Success)
+                return new DateTime(now.Year, now.Month, now.Day,
+                    int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value), 0);
+            m = System.Text.RegularExpressions.Regex.Match(s, @"^昨天\s*(\d{1,2}):(\d{2})$");
+            if (m.Success)
+            {
+                DateTime y = now.AddDays(-1);
+                return new DateTime(y.Year, y.Month, y.Day,
+                    int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value), 0);
+            }
+
+            // ===== 3. MM-dd =====
+            m = System.Text.RegularExpressions.Regex.Match(s, @"^(\d{1,2})-(\d{1,2})$");
+            if (m.Success)
+            {
+                try
+                {
+                    return new DateTime(now.Year,
+                        int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value));
+                }
+                catch { }
+            }
+
+            // ===== 4. 兜底：让 .NET 自己试 =====
+            string[] fmts = new string[]
+            {
+                "yyyy-MM-dd HH:mm:ss",
+                "yyyy-MM-dd HH:mm",
+                "yyyy-MM-dd",
+            };
+            for (int i = 0; i < fmts.Length; i++)
+            {
+                DateTime dt;
+                if (DateTime.TryParseExact(s, fmts[i],
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.None, out dt))
+                    return dt;
+            }
+
+            // ===== 5. 最后兜底：DateTime.Parse =====
+            try { return DateTime.Parse(s); } catch { }
+
+            return null;
+        }
+
+        private static int MonthNum(string mmm)
+        {
+            if (mmm == null) return 0;
+            string[] names = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+            for (int i = 0; i < names.Length; i++)
+                if (string.Equals(names[i], mmm, StringComparison.OrdinalIgnoreCase))
+                    return i + 1;
+            return 0;
         }
 
         private async Task<bool> PostDestroyAsync(string id, bool quick)
@@ -260,9 +375,11 @@ namespace WeiboDelete
             return "other";
         }
 
-        public async Task RunAsync(string uid, int maxCount)
+        public async Task RunAsync(string uid, int maxCount, DateTime? startDt, DateTime? endDt)
         {
             Done = 0;
+            LastRunAborted = false;
+            LastAbortReason = "";
             int stale = 0;
             int rlHits = 0;
             int emptyHits = 0;
@@ -280,7 +397,13 @@ namespace WeiboDelete
                 if (lr.Error != null)
                 {
                     emptyHits++;
-                    if (emptyHits >= EmptyTolerance) { Log("连续失败，本轮停止：" + lr.Error); break; }
+                    if (emptyHits >= EmptyTolerance)
+                {
+                    Log("连续失败，本轮停止：" + lr.Error);
+                    LastRunAborted = true;
+                    LastAbortReason = lr.Error;
+                    break;
+                }
                     Log("拉列表失败：" + lr.Error + "（" + emptyHits + "/" + EmptyTolerance + "），重试");
                     await SleepSecAsync(4);
                     continue;
@@ -300,19 +423,35 @@ namespace WeiboDelete
                 }
                 emptyHits = 0;
 
+                bool dateFilter = startDt.HasValue || endDt.HasValue;
                 List<Item> pending = new List<Item>();
+                int nDone = 0;      // 已处理过
+                int nBadDate = 0;   // 日期不符 / 时间认不出
+                int nNoId = 0;      // 没 id
                 for (int i = 0; i < lr.Items.Count; i++)
                 {
                     Item it = lr.Items[i];
-                    if (string.IsNullOrEmpty(it.Id)) continue;
-                    if (deleted.Contains(it.Id) || skipped.Contains(it.Id)) continue;
+                    if (string.IsNullOrEmpty(it.Id)) { nNoId++; continue; }
+                    if (deleted.Contains(it.Id) || skipped.Contains(it.Id)) { nDone++; continue; }
+
+                    if (dateFilter)
+                    {
+                        if (!it.Created.HasValue) { nBadDate++; continue; }
+                        if (startDt.HasValue && it.Created.Value < startDt.Value) { nBadDate++; continue; }
+                        if (endDt.HasValue && it.Created.Value > endDt.Value) { nBadDate++; continue; }
+                    }
                     pending.Add(it);
                 }
 
                 if (pending.Count == 0)
                 {
                     stale++;
-                    Log("本页 " + lr.Items.Count + " 条都处理过了，往前挪（连续 " + stale + " 页）");
+                    string detail = "";
+                    if (nDone > 0) detail += "，已处理 " + nDone;
+                    if (nBadDate > 0) detail += "，日期不符 " + nBadDate;
+                    if (nNoId > 0) detail += "，无 id " + nNoId;
+                    Log("本页 " + lr.Items.Count + " 条没有可删的" + detail
+                        + "，往前挪（连续 " + stale + " 页）");
                     if (string.IsNullOrEmpty(lr.NextSince)) { Log("到底了。"); break; }
                     sinceId = lr.NextSince;
                     continue;
@@ -348,13 +487,21 @@ namespace WeiboDelete
                         if (kind == "auth")
                         {
                             Log("登录失效：" + msg + "，停止。请重新登录。");
+                            LastRunAborted = true;
+                            LastAbortReason = "登录失效";
                             return;
                         }
 
                         if (kind == "ratelimit")
                         {
                             rlHits++;
-                            if (rlHits > 8) { Log("持续限速，停止。过几小时再来。"); return; }
+                            if (rlHits > 8)
+                            {
+                                Log("持续限速，停止。过几小时再来。");
+                                LastRunAborted = true;
+                                LastAbortReason = "持续限速";
+                                return;
+                            }
                             int wait = Math.Min(900, 30 * (1 << (rlHits - 1))) + rnd.Next(0, 20);
                             Log("被限速（" + msg + "），歇 " + wait + " 秒后重试。");
                             await SleepSecAsync(wait);

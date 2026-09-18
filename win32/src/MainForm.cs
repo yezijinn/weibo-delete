@@ -11,7 +11,12 @@ namespace WeiboDelete
         private RichTextBox logBox;
         private ToolStripStatusLabel statLabel;
         private Label hintLabel;
-        private Button btnCount, btnAll, btnTest, btnRetry, btnLogout, btnStop;
+        private Button btnCount, btnAll, btnDate, btnTest, btnRetry, btnLogout, btnSetting, btnStop;
+        private TextBox dateFrom, dateTo;
+        private Settings settings;
+        private Panel browserPanel;
+        private Label browserHint;
+        private System.Windows.Forms.Timer embedTimer;
 
         private Logger log;
         private Store deletedStore, skippedStore;
@@ -47,7 +52,7 @@ namespace WeiboDelete
             Height = h;
             Left = wa.Left + (wa.Width - w) / 2;
             Top = wa.Top + (wa.Height - h) / 2;
-            MinimumSize = new Size(760, 520);
+            MinimumSize = new Size(900, 600);
 
             BuildUI();
             Load += OnLoaded;
@@ -56,34 +61,68 @@ namespace WeiboDelete
 
         private void BuildUI()
         {
-            Panel topWrap = new Panel();
-            topWrap.Dock = DockStyle.Top;
-            topWrap.Height = 78;
+            // ============ 左列：程序控件 ============
 
+            // 按钮区（左上角，多行自动换行）
             FlowLayoutPanel top = new FlowLayoutPanel();
-            top.Dock = DockStyle.Fill;
+            top.Dock = DockStyle.Top;
+            top.Height = 116;
             top.Padding = new Padding(6);
             top.WrapContents = true;
 
             btnCount = MakeBtn("看看有多少条", OnCount);
             btnAll = MakeBtn("全部删除", OnDeleteAll);
+            btnDate = MakeBtn("按日期删除", OnDeleteByDate);
             btnTest = MakeBtn("先删 3 条试试", OnTest3);
             btnRetry = MakeBtn("重试跳过的", OnRetrySkipped);
             btnLogout = MakeBtn("退出登录", OnLogout);
+            btnSetting = MakeBtn("设置间隔", OnSetting);
             btnStop = MakeBtn("停止", OnStop);
             btnStop.Enabled = false;
 
             top.Controls.Add(btnCount);
             top.Controls.Add(btnAll);
+            top.Controls.Add(btnDate);
             top.Controls.Add(btnTest);
             top.Controls.Add(btnRetry);
             top.Controls.Add(btnLogout);
+            top.Controls.Add(btnSetting);
             top.Controls.Add(btnStop);
-            topWrap.Controls.Add(top);
 
+            // 日期输入
+            Label lblFrom = new Label();
+            lblFrom.Text = "日期：";
+            lblFrom.AutoSize = true;
+            lblFrom.Padding = new Padding(12, 8, 0, 0);
+            top.Controls.Add(lblFrom);
+
+            dateFrom = new TextBox();
+            dateFrom.Width = 88;
+            dateFrom.Margin = new Padding(3, 6, 3, 3);
+            top.Controls.Add(dateFrom);
+
+            Label lblTo = new Label();
+            lblTo.Text = "到";
+            lblTo.AutoSize = true;
+            lblTo.Padding = new Padding(0, 8, 0, 0);
+            top.Controls.Add(lblTo);
+
+            dateTo = new TextBox();
+            dateTo.Width = 88;
+            dateTo.Margin = new Padding(3, 6, 3, 3);
+            top.Controls.Add(dateTo);
+
+            Label lblHint = new Label();
+            lblHint.Text = "（2020-01-01 格式，留空不限）";
+            lblHint.AutoSize = true;
+            lblHint.ForeColor = Color.Gray;
+            lblHint.Padding = new Padding(6, 8, 0, 0);
+            top.Controls.Add(lblHint);
+
+            // 提示条（按钮区下方）
             Panel hintWrap = new Panel();
             hintWrap.Dock = DockStyle.Top;
-            hintWrap.Height = 40;
+            hintWrap.Height = 36;
 
             hintLabel = new Label();
             hintLabel.Dock = DockStyle.Fill;
@@ -93,6 +132,7 @@ namespace WeiboDelete
             hintLabel.Text = "正在启动浏览器……";
             hintWrap.Controls.Add(hintLabel);
 
+            // 日志
             logBox = new RichTextBox();
             logBox.Dock = DockStyle.Fill;
             logBox.ReadOnly = true;
@@ -103,19 +143,57 @@ namespace WeiboDelete
             logBox.ScrollBars = RichTextBoxScrollBars.Both;
             logBox.HideSelection = false;
 
+            // 状态栏
             StatusStrip status = new StatusStrip();
             statLabel = new ToolStripStatusLabel("准备中……");
             status.Items.Add(statLabel);
 
-            Controls.Add(logBox);
-            Controls.Add(hintWrap);
-            Controls.Add(topWrap);
-            Controls.Add(status);
+            // 左列容器
+            Panel leftPanel = new Panel();
+            leftPanel.Dock = DockStyle.Fill;
+            leftPanel.BackColor = Color.FromArgb(240, 240, 240);
 
-            logBox.BringToFront();
-            hintWrap.BringToFront();
-            topWrap.BringToFront();
-            status.BringToFront();
+            // 添加顺序（倒序 Dock 计算）：先 Fill，再 Top/Bottom
+            leftPanel.Controls.Add(logBox);     // Fill，占剩余
+            leftPanel.Controls.Add(hintWrap);   // Top，提示条
+            leftPanel.Controls.Add(top);        // Top，按钮区
+            leftPanel.Controls.Add(status);     // Bottom，状态栏
+
+            // ============ 右列：浏览器 ============
+
+            browserPanel = new Panel();
+            browserPanel.Dock = DockStyle.Fill;
+            browserPanel.BackColor = Color.FromArgb(245, 245, 245);
+
+            browserHint = new Label();
+            browserHint.Dock = DockStyle.Fill;
+            browserHint.TextAlign = ContentAlignment.MiddleCenter;
+            browserHint.ForeColor = Color.Gray;
+            browserHint.Text = "正在启动浏览器……";
+            browserPanel.Controls.Add(browserHint);
+
+            // ============ 左右分栏 ============
+
+            // 用 TableLayoutPanel 做左右 50/50，避开 SplitContainer 的各种尺寸约束
+            TableLayoutPanel grid = new TableLayoutPanel();
+            grid.Dock = DockStyle.Fill;
+            grid.ColumnCount = 2;
+            grid.RowCount = 1;
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50f));
+            grid.RowStyles.Add(new RowStyle(SizeType.Percent, 100f));
+            grid.Controls.Add(leftPanel, 0, 0);
+            grid.Controls.Add(browserPanel, 1, 0);
+
+            Controls.Add(grid);
+
+            // 面板尺寸变化时，同步调整嵌入的浏览器窗口大小
+            browserPanel.SizeChanged += OnBrowserPanelResize;
+
+            // Chromium 会自己调整窗口位置，所以用定时器持续校正
+            embedTimer = new System.Windows.Forms.Timer();
+            embedTimer.Interval = 150;
+            embedTimer.Tick += OnEmbedTick;
         }
 
         private Button MakeBtn(string text, EventHandler h)
@@ -127,6 +205,37 @@ namespace WeiboDelete
             b.Margin = new Padding(3);
             b.Click += h;
             return b;
+        }
+
+        private void OnEmbedTick(object sender, EventArgs e)
+        {
+            if (browser == null || browserPanel == null) return;
+            if (browser.BrowserHwnd == IntPtr.Zero) return;
+            if (browserPanel.IsDisposed || !browserPanel.IsHandleCreated) return;
+            browser.ResizeEmbedded(browserPanel.ClientSize.Width,
+                                   browserPanel.ClientSize.Height);
+        }
+
+        private void OnBrowserPanelResize(object sender, EventArgs e)
+        {
+            if (browser != null && browserPanel != null)
+            {
+                browser.ResizeEmbedded(browserPanel.ClientSize.Width,
+                                       browserPanel.ClientSize.Height);
+            }
+        }
+
+        private void SetBrowserHint(string s)
+        {
+            if (InvokeRequired) { Invoke(new Action<string>(SetBrowserHint), s); return; }
+            browserHint.Text = s;
+            browserHint.Visible = (browser == null || browser.BrowserHwnd == IntPtr.Zero);
+        }
+
+        private void HideBrowserHint()
+        {
+            if (InvokeRequired) { Invoke(new Action(HideBrowserHint)); return; }
+            browserHint.Visible = false;
         }
 
         private void SetHint(string s)
@@ -143,6 +252,7 @@ namespace WeiboDelete
                 Directory.CreateDirectory(profileDir);
 
                 log = new Logger(dataDir);
+                settings = Settings.Load(dataDir);
                 deletedStore = Store.Load(Path.Combine(dataDir, "deleted.jsonl"));
                 skippedStore = Store.Load(Path.Combine(dataDir, "skipped.jsonl"));
 
@@ -153,11 +263,13 @@ namespace WeiboDelete
                 string exe = Browser.FindBrowser();
                 if (exe == null)
                 {
-                    AppendLog("找不到 Edge 或 Chrome。");
+                    AppendLog("找不到内置浏览器。");
                     MessageBox.Show(
-                        "系统里找不到 Microsoft Edge 或 Google Chrome。\n\n"
-                        + "Windows 10/11 一般自带 Edge，如果没有请先装一个。",
-                        "找不到浏览器", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        "程序目录下找不到内置浏览器。\n\n"
+                        + "应该有 browser\\chrome-win64\\chrome.exe 这个文件。\n\n"
+                        + "请确认解压完整，把整个文件夹解压出来，\n"
+                        + "不要单独把 exe 拖出来运行。",
+                        "找不到内置浏览器", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
                 AppendLog("浏览器：" + exe);
@@ -177,9 +289,43 @@ namespace WeiboDelete
                     return;
                 }
 
-                AppendLog("正在打开微博……");
-                SetHint("正在打开微博，请在弹出的浏览器窗口里登录……");
-                await browser.OpenPageAsync("https://weibo.com");
+                AppendLog("正在等待浏览器窗口……");
+                SetBrowserHint("正在启动浏览器……");
+
+                // 等浏览器主窗口出现，然后嵌进程序界面
+                IntPtr hwnd = await Task.Run(new Func<IntPtr>(browser.FindBrowserWindow));
+                if (hwnd == IntPtr.Zero)
+                {
+                    AppendLog("没找到浏览器窗口，可能启动失败了。");
+                    MessageBox.Show("浏览器窗口没出现，请重试。", "启动失败",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+
+                AppendLog("找到浏览器窗口句柄：" + hwnd.ToInt64());
+                AppendLog("程序面板句柄：" + browserPanel.Handle.ToInt64());
+                AppendLog("正在把浏览器嵌入界面……");
+                // 藏掉地址栏和标签栏：把浏览器窗口向上偏移
+                browser.EmbedOffsetY = 90;
+                bool attached = browser.AttachTo(browserPanel.Handle,
+                                                 browserPanel.ClientSize.Width,
+                                                 browserPanel.ClientSize.Height);
+                if (attached)
+                {
+                    HideBrowserHint();
+                    AppendLog("浏览器已嵌入（已验证父窗口）。");
+                    // 启动定时校正，防止 Chromium 把窗口撑大盖住按钮区
+                    embedTimer.Start();
+                }
+                else
+                {
+                    AppendLog("嵌入失败，浏览器会单独显示。");
+                    SetBrowserHint("浏览器在单独窗口里，请在那边操作");
+                }
+
+                AppendLog("正在连接浏览器……");
+                SetHint("正在连接浏览器……");
+                await browser.OpenPageAsync();
 
                 api = new Api(browser);
                 logic = new Logic(api, log, deletedStore, skippedStore,
@@ -225,17 +371,19 @@ namespace WeiboDelete
         }
 
         private bool IsStop() { return stopFlag; }
-        private double GetDelay() { return 2.0; }
-        private double GetJitter() { return 1.5; }
+        private double GetDelay() { return settings != null ? settings.Delay : 2.0; }
+        private double GetJitter() { return settings != null ? settings.Jitter : 1.5; }
 
         private void SetBusy(bool b)
         {
             busy = b;
             btnCount.Enabled = !b;
             btnAll.Enabled = !b;
+            btnDate.Enabled = !b;
             btnTest.Enabled = !b;
             btnRetry.Enabled = !b;
             btnLogout.Enabled = !b;
+            btnSetting.Enabled = !b;
             btnStop.Enabled = b;
         }
 
@@ -311,6 +459,145 @@ namespace WeiboDelete
             await RunDeleteAsync(0, true);
         }
 
+        private DateTime? ParseDate(string s, bool isEnd)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return null;
+            DateTime d;
+            if (!DateTime.TryParseExact(s.Trim(), "yyyy-MM-dd",
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None, out d))
+                return null;
+            if (isEnd) return d.Date.AddDays(1).AddSeconds(-1);
+            return d.Date;
+        }
+
+        private async void OnDeleteByDate(object sender, EventArgs e)
+        {
+            if (busy) return;
+
+            string s1 = dateFrom.Text.Trim();
+            string s2 = dateTo.Text.Trim();
+
+            if (s1.Length == 0 && s2.Length == 0)
+            {
+                MessageBox.Show(
+                    "请先在日期框里填范围。\n\n格式：2020-01-01\n\n"
+                    + "两个都填 = 删这个范围内\n"
+                    + "只填开始 = 删这天之后的\n"
+                    + "只填结束 = 删这天之前的",
+                    "填写日期");
+                return;
+            }
+
+            DateTime? d1 = ParseDate(s1, false);
+            DateTime? d2 = ParseDate(s2, true);
+
+            if (s1.Length > 0 && !d1.HasValue)
+            {
+                MessageBox.Show("开始日期格式不对，应该像 2020-01-01 这样。", "格式错误");
+                return;
+            }
+            if (s2.Length > 0 && !d2.HasValue)
+            {
+                MessageBox.Show("结束日期格式不对，应该像 2020-12-31 这样。", "格式错误");
+                return;
+            }
+            if (d1.HasValue && d2.HasValue && d1.Value > d2.Value)
+            {
+                MessageBox.Show("开始日期不能晚于结束日期。", "范围错误");
+                return;
+            }
+
+            if (!await EnsureLoginAsync()) return;
+
+            string desc = (d1.HasValue ? d1.Value.ToString("yyyy-MM-dd") : "不限")
+                        + " ~ "
+                        + (d2.HasValue ? d2.Value.ToString("yyyy-MM-dd") : "不限");
+            DialogResult r = MessageBox.Show(
+                "会删掉这个范围内的微博：\n\n" + desc + "\n\n"
+                + "删了就找不回来。确定继续吗？",
+                "确认按日期删除", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (r != DialogResult.Yes) return;
+
+            await RunDeleteAsync(0, true, d1, d2);
+        }
+
+        private void OnSetting(object sender, EventArgs e)
+        {
+            if (busy) return;
+            if (settings == null) return;
+
+            using (Form f = new Form())
+            {
+                f.Text = "设置删除间隔";
+                f.Width = 380;
+                f.Height = 220;
+                f.StartPosition = FormStartPosition.CenterParent;
+                f.FormBorderStyle = FormBorderStyle.FixedDialog;
+                f.MaximizeBox = false;
+                f.MinimizeBox = false;
+
+                Label l1 = new Label();
+                l1.Text = "每条微博之间等多少秒？";
+                l1.Left = 16; l1.Top = 16; l1.Width = 340;
+                f.Controls.Add(l1);
+
+                Label l2 = new Label();
+                l2.Text = "默认 2 秒。太小容易被微博限速，建议 2~5 秒。";
+                l2.Left = 16; l2.Top = 38; l2.Width = 340;
+                l2.ForeColor = Color.Gray;
+                f.Controls.Add(l2);
+
+                TextBox tb = new TextBox();
+                tb.Left = 16; tb.Top = 66; tb.Width = 120;
+                tb.Text = settings.Delay.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture);
+                f.Controls.Add(tb);
+
+                Label l3 = new Label();
+                l3.Text = "秒（0.5 ~ 60）";
+                l3.Left = 144; l3.Top = 69; l3.AutoSize = true;
+                f.Controls.Add(l3);
+
+                Button ok = new Button();
+                ok.Text = "确定";
+                ok.Left = 180; ok.Top = 120; ok.Width = 80;
+                ok.DialogResult = DialogResult.OK;
+                f.Controls.Add(ok);
+
+                Button cancel = new Button();
+                cancel.Text = "取消";
+                cancel.Left = 270; cancel.Top = 120; cancel.Width = 80;
+                cancel.DialogResult = DialogResult.Cancel;
+                f.Controls.Add(cancel);
+
+                f.AcceptButton = ok;
+                f.CancelButton = cancel;
+
+                if (f.ShowDialog(this) != DialogResult.OK) return;
+
+                double v;
+                if (!double.TryParse(tb.Text.Trim(),
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out v))
+                {
+                    MessageBox.Show("请输入数字，比如 2 或 3.5", "格式错误");
+                    return;
+                }
+                if (v < 0.5 || v > 60)
+                {
+                    MessageBox.Show("范围是 0.5 ~ 60 秒。", "超出范围");
+                    return;
+                }
+
+                settings.Delay = v;
+                settings.Jitter = Math.Max(0.5, Math.Min(3.0, v * 0.75));
+                settings.Save();
+                AppendLog("删除间隔已设为 " + v + " 秒。");
+                MessageBox.Show("已保存。\n\n每条等 " + v + " 秒。", "设置完成");
+            }
+        }
+
         private async void OnTest3(object sender, EventArgs e)
         {
             if (busy) return;
@@ -326,6 +613,12 @@ namespace WeiboDelete
 
         private async Task RunDeleteAsync(int maxCount, bool verify)
         {
+            await RunDeleteAsync(maxCount, verify, null, null);
+        }
+
+        private async Task RunDeleteAsync(int maxCount, bool verify,
+                                          DateTime? startDt, DateTime? endDt)
+        {
             SetBusy(true);
             stopFlag = false;
             try
@@ -333,9 +626,19 @@ namespace WeiboDelete
                 string uid = await GetUidAsync();
 
                 AppendLog("");
+                string rangeHint = "";
+                if (startDt.HasValue || endDt.HasValue)
+                {
+                    rangeHint = "（"
+                        + (startDt.HasValue ? startDt.Value.ToString("yyyy-MM-dd") : "-")
+                        + " ~ "
+                        + (endDt.HasValue ? endDt.Value.ToString("yyyy-MM-dd") : "-")
+                        + "）";
+                }
                 AppendLog("=== 第一轮：开始删除"
-                          + (maxCount > 0 ? "（最多 " + maxCount + " 条）" : "") + " ===");
-                await logic.RunAsync(uid, maxCount);
+                          + (maxCount > 0 ? "（最多 " + maxCount + " 条）" : "")
+                          + rangeHint + " ===");
+                await logic.RunAsync(uid, maxCount, startDt, endDt);
 
                 if (!verify || stopFlag) return;
 
@@ -356,12 +659,19 @@ namespace WeiboDelete
                 AppendLog("=== 第二轮：全面复核，确认没有遗漏 ===");
                 SetHint("正在复核，确认没有遗漏……");
                 int before = deletedStore.Count;
-                await logic.RunAsync(uid, 0);
+                await logic.RunAsync(uid, 0, startDt, endDt);
                 int after = deletedStore.Count;
                 int extra = after - before;
 
                 AppendLog("");
-                if (extra <= 0)
+                if (logic.LastRunAborted)
+                {
+                    // 复核中途出错（掉线、403、限速等），结果不可信
+                    AppendLog("复核没有跑完：" + logic.LastAbortReason);
+                    AppendLog("这次结果不作数，请检查后重新点「全部删除」。");
+                    SetHint("复核未完成，请重试");
+                }
+                else if (extra <= 0)
                 {
                     AppendLog("复核完成：没有发现遗漏，全部删干净了。");
                     SetHint("完成，全部删干净了");
@@ -447,6 +757,7 @@ namespace WeiboDelete
                 if (r != DialogResult.Yes) { e.Cancel = true; return; }
                 stopFlag = true;
             }
+            try { if (embedTimer != null) { embedTimer.Stop(); embedTimer.Dispose(); } } catch { }
             try { if (browser != null) browser.Dispose(); } catch { }
         }
     }
