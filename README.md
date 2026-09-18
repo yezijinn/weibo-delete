@@ -204,8 +204,8 @@ browser\            内置浏览器（363 MB，别删）
 **Q：exe 双击没反应 / 被杀毒软件删了？**
 可能被杀软误报。看下杀软的隔离区，把程序加信任，或整个文件夹加入白名单。
 
-**Q：提示缺少 WebView2 Runtime？**
-按弹窗点「是」装一次即可。或者去微软官网搜 "WebView2 Runtime" 下载。只需做一次。
+**Q：提示缺少 内置 Chromium Runtime？**
+按弹窗点「是」装一次即可。或者去微软官网搜 "内置 Chromium Runtime" 下载。只需做一次。
 
 **Q：提示 Python not found？（Python 版）**
 Python 没装好。重新装一次，安装时一定要勾 "Add Python to PATH"。
@@ -281,7 +281,7 @@ python weibo_delete.py --start 2020-01-01 --end 2020-12-31
 
 ### 原理
 
-Playwright（Python 版）或 WebView2（exe 版）起一个真浏览器，用你的登录态调微博自己的接口：
+Playwright（Python 版）或 内置 Chromium（exe 版）起一个真浏览器，用你的登录态调微博自己的接口：
 
 - `ajax/statuses/mymblog` 拉列表
 - `ajax/statuses/destroy` 删除 / 取消快转
