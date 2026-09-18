@@ -26,9 +26,9 @@
 
 ## 1. 下载
 
-打开 https://github.com/yezijinn/weibo-delete/releases
+打开 https://github.com/yezijinn/weibo-delete/releases/latest
 
-下载最新版的 微博批量删除工具.zip（约 250 KB）。
+点开 Assets，下载 **weibo-delete-win32-v1.0.0.zip**（约 250 KB）。
 
 解压到一个固定文件夹，比如桌面新建一个「微博删除工具」文件夹。
 
